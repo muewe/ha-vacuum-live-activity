@@ -1,0 +1,165 @@
+blueprint:
+  name: "Saugroboter: Live Activity für iOS und Android"
+  description: >-
+    Zeigt Reinigung, Pause und Rückfahrt auf Smartphones an. Unterstützt
+    optional einen Prozent-Fortschrittssensor, einen Akkusensor und einen
+    Dashboard-Link. Der Blueprint steuert den Roboter nicht.
+  domain: automation
+  homeassistant:
+    min_version: "2026.7.0"
+  input:
+    vacuum_entity:
+      name: Saugroboter
+      selector:
+        entity:
+          filter:
+            - domain: vacuum
+    notify_actions:
+      name: Companion-App-Benachrichtigungsaktionen
+      description: >-
+        Pro Handy eine vollständige Aktion eintragen, z. B.
+        notify.mobile_app_mein_iphone oder notify.mobile_app_mein_android.
+        Du findest sie unter Entwicklerwerkzeuge → Aktionen.
+      selector:
+        text:
+          multiple: true
+    extras:
+      name: Optionale Anzeige
+      collapsed: true
+      input:
+        progress_sensor:
+          name: Reinigungsfortschritt in Prozent
+          description: Sensor mit numerischem Wert von 0 bis 100. Kein Akkusensor.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        battery_sensor:
+          name: Akkustand in Prozent
+          description: >-
+            Überschreibt das Attribut battery_level des Saugroboters, sofern
+            der ausgewählte Sensor einen gültigen Prozentwert liefert.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        tap_path:
+          name: Dashboard-Pfad beim Antippen
+          description: >-
+            Relativer Home-Assistant-Pfad, z. B. /dashboard-haus/reinigung.
+            Ohne Eingabe öffnet sich der Mehr-Infos-Dialog des Saugroboters.
+          default: ""
+          selector:
+            text:
+
+mode: restart
+
+triggers:
+  # A null "to" matches state changes without firing on attribute-only updates.
+  - trigger: state
+    entity_id: !input vacuum_entity
+    to:
+    id: state_change
+  - trigger: state
+    entity_id: !input vacuum_entity
+    to:
+      - "unknown"
+      - "unavailable"
+    for:
+      minutes: 2
+    id: offline
+  - trigger: homeassistant
+    event: start
+    id: startup
+  - trigger: time_pattern
+    minutes: "/5"
+    id: metrics_refresh
+
+variables:
+  vacuum_entity: !input vacuum_entity
+  notify_actions: !input notify_actions
+  progress_sensor: !input progress_sensor
+  battery_sensor: !input battery_sensor
+  tap_path: !input tap_path
+  # Keep the tag stable across restarts and within the 64-character limit.
+  notification_tag: "{{ 'ha-vacuum-' ~ sha256(vacuum_entity)[:24] }}"
+  trigger_id: "{{ trigger.id | default('manual') if trigger is defined else 'manual' }}"
+  vacuum_state: "{{ states(vacuum_entity) }}"
+  active: "{{ vacuum_state in ['cleaning', 'paused', 'returning'] }}"
+  battery_attribute: "{{ state_attr(vacuum_entity, 'battery_level') }}"
+  recipients: >-
+    {{ notify_actions | map('trim')
+       | select('match', '^notify[.]mobile_app_[a-z0-9_]+$')
+       | unique | list }}
+
+conditions:
+  # Leave the current activity alone during brief integration reconnects.
+  - condition: template
+    value_template: >-
+      {% if trigger_id == 'metrics_refresh' %}
+        {{ active and (progress_sensor != '' or battery_sensor != '' or battery_attribute is not none) }}
+      {% elif vacuum_state in ['unknown', 'unavailable'] %}
+        {{ trigger_id in ['offline', 'startup', 'manual'] }}
+      {% else %}
+        {{ true }}
+      {% endif %}
+
+actions:
+  - variables:
+      notification_title: "{{ state_attr(vacuum_entity, 'friendly_name') or vacuum_entity }}"
+      status_text: >-
+        {{ {'cleaning': 'Reinigt', 'paused': 'Pausiert',
+            'returning': 'Fährt zur Station'}.get(vacuum_state, vacuum_state) }}
+      progress_raw: "{{ states(progress_sensor) if progress_sensor else none }}"
+      battery_raw: "{{ states(battery_sensor) if battery_sensor else none }}"
+      destination: >
+        {% set path = tap_path | trim %}
+        {{ path if path.startswith('/') and not path.startswith('//')
+           else '/?more-info-entity-id=' ~ vacuum_entity }}
+  - variables:
+      progress: >-
+        {{ progress_raw | float | round | int
+           if is_number(progress_raw) and 0 <= progress_raw | float <= 100 else none }}
+      battery: >-
+        {% if is_number(battery_raw) and 0 <= battery_raw | float <= 100 %}
+          {{ battery_raw | float | round | int }}
+        {% elif battery_attribute is not boolean and is_number(battery_attribute)
+                and 0 <= battery_attribute | float <= 100 %}
+          {{ battery_attribute | float | round | int }}
+        {% else %}
+          {{ none }}
+        {% endif %}
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - if:
+            - condition: template
+              value_template: "{{ active }}"
+          then:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ notification_title }}"
+                message: >-
+                  {{ status_text ~ (' · ' ~ progress ~ ' % fertig' if progress is not none else '')
+                     ~ (' · Akku ' ~ battery ~ ' %' if battery is not none else '') }}
+                data: >-
+                  {% set chip = ('Pause' if vacuum_state == 'paused' else
+                                 ('Station' if vacuum_state == 'returning' else
+                                 (progress ~ ' %' if progress is not none else 'Reinigt'))) %}
+                  {% set base = {'tag': notification_tag, 'live_update': true,
+                                 'sticky': true, 'alert_once': true,
+                                 'notification_icon': 'mdi:robot-vacuum',
+                                 'critical_text': chip, 'url': destination,
+                                 'clickAction': destination} %}
+                  {{ dict(base, progress=progress, progress_max=100)
+                     if progress is not none else base }}
+          else:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                message: clear_notification
+                data:
+                  tag: "{{ notification_tag }}"
