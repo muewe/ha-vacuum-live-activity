@@ -1,6 +1,7 @@
 blueprint:
   name: "Robot Vacuum: Live Activity for iOS and Android"
   description: >-
+    Version 1.0.0.
     Shows when your robot vacuum is cleaning, paused, or returning to its dock.
     Optionally displays cleaning progress and battery level, and links to a
     dashboard. This blueprint does not control the vacuum.
