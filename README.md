@@ -1,49 +1,49 @@
-# Saugroboter: Live Activity für Home Assistant
+# Robot Vacuum Live Activity for Home Assistant
 
-Ein Blueprint für iPhone und Android. Sobald der Saugroboter reinigt, pausiert oder zur Station zurückfährt, erscheint sein Status als Live Activity bzw. Live Update. Der Blueprint aktualisiert dieselbe Anzeige und entfernt sie, sobald der Einsatz endet. Er sendet keine Befehle an den Roboter.
+This Home Assistant blueprint shows your robot vacuum's status on iPhone and Android while it is cleaning, paused, or returning to its dock. It updates the same Live Activity or Live Update and dismisses it when the run ends. It does not send commands to the vacuum.
 
-## Voraussetzungen
+## Requirements
 
-- **Home Assistant Core 2026.7.0 oder neuer** und eine aktuelle Home-Assistant-Companion-App mit erlaubten Mitteilungen.
-- **iPhone mit iOS 17.2 oder neuer:** Live Activity auf dem Sperrbildschirm und, falls vorhanden, in der Dynamic Island. Prüfe in der Companion-App unter **Einstellungen → Live Activities**, ob die Funktion verfügbar und aktiviert ist. Die Companion-Doku beschreibt die Funktion auf iOS als Beta. Öffne die App nach der Einrichtung mindestens einmal und achte darauf, dass die App den HA-Server auch unterwegs erreichen kann.
-- **Android 16 oder neuer:** Live Update, je nach Gerät mit Statusleisten-Chip und Sperrbildschirm-Anzeige. Bei Samsung kann für den Chip die Entwickleroption **Live-Benachrichtigungen für alle Apps** nötig sein. Auf älteren Android-Versionen ist keine native Live-Update-Anzeige zu erwarten.
-- **Saugroboter:** Eine `vacuum.*`-Entität mit den [Standardzuständen von Home Assistant](https://www.home-assistant.io/integrations/vacuum/#vacuum-states). Reinigungsfortschritt und separater Akkusensor sind optional.
+- **Home Assistant Core 2026.7.0 or later** and an up-to-date Home Assistant Companion app with notifications enabled.
+- **iPhone with iOS 17.2 or later:** The Live Activity appears on the Lock Screen and in the Dynamic Island on supported models. Check **Settings → Live Activities** in the Companion app to see whether the feature is available and enabled. The Companion documentation describes the iOS feature as beta. Open the app at least once after setup, and make sure it can reach your Home Assistant server when you are away.
+- **Android 16 or later:** Live Updates may include a Lock Screen notification and a status bar chip, depending on the device. On Samsung, you may need to enable **Live notifications for all apps** in Developer options for the chip to appear. Older Android versions do not support native Live Updates.
+- **Robot vacuum:** A `vacuum.*` entity that reports [standard Home Assistant vacuum states](https://www.home-assistant.io/integrations/vacuum/#vacuum-states). Cleaning progress and a separate battery sensor are optional.
 
-Die [Companion-Dokumentation zu Live Activities und Live Updates](https://companion.home-assistant.io/docs/notifications/live-activities/) beschreibt die Voraussetzungen und die gemeinsame Payload. Für das Antippen nutzt der Blueprint die [Companion-Felder `url` und `clickAction`](https://companion.home-assistant.io/docs/notifications/notifications-basic/).
+The [Companion documentation for Live Activities and Live Updates](https://companion.home-assistant.io/docs/notifications/live-activities/) covers platform requirements and the shared notification payload. The blueprint uses the [Companion `url` and `clickAction` fields](https://companion.home-assistant.io/docs/notifications/notifications-basic/) to open a destination on tap.
 
 ## Installation
 
-Das GitHub-Repository ist privat. Lade die [Blueprint-YAML](blueprints/automation/vacuum_live_activity.yaml) in GitHub herunter und kopiere sie nach `/config/blueprints/automation/local/vacuum_live_activity.yaml`. Der Import über eine GitHub-URL funktioniert für ein privates Repository ohne GitHub-Zugang des HA-Servers nicht.
+This GitHub repository is private. Download the [blueprint YAML](blueprints/automation/vacuum_live_activity.yaml) from GitHub and copy it to `/config/blueprints/automation/local/vacuum_live_activity.yaml`. Importing it by URL will not work unless your Home Assistant server can authenticate to GitHub and access this repository.
 
-1. Öffne **Einstellungen → Automatisierungen & Szenen → Blueprints**. Wenn der Blueprint nicht angezeigt wird, lade die Automatisierungen neu oder starte Home Assistant neu.
-2. Erstelle eine Automatisierung aus **Saugroboter: Live Activity für iOS und Android** und wähle deine `vacuum.*`-Entität.
-3. Suche unter **Entwicklerwerkzeuge → Aktionen** nach `notify.mobile_app_`. Trage pro Handy den vollständigen Aktionsnamen in die Liste ein. Du kannst iPhone und Android in derselben Automatisierung verwenden.
-4. Optional: Wähle einen Fortschritts- oder Akkusensor mit Werten von 0 bis 100 oder trage einen relativen Dashboard-Pfad ein. Ohne Dashboard-Pfad öffnet Antippen den Mehr-Infos-Dialog des Roboters.
-5. Speichere die Automatisierung. Starte einen Reinigungslauf und prüfe auf beiden Geräten, ob die Anzeige erscheint, beim Pausieren aktualisiert wird und beim Andocken verschwindet.
+1. Open **Settings → Automations & scenes → Blueprints**. If the blueprint does not appear, reload automations or restart Home Assistant.
+2. Create an automation from **Robot Vacuum: Live Activity for iOS and Android** and select your `vacuum.*` entity.
+3. In **Developer tools → Actions**, search for `notify.mobile_app_`. Add one full action name per phone. You can use iPhone and Android recipients in the same automation.
+4. Optionally, select a cleaning progress sensor or a battery sensor with values from 0 to 100, or enter a relative dashboard path. If the path is blank, tapping the notification opens the vacuum's more-info dialog.
+5. Save the automation and start a cleaning run. On both phones, verify that the notification appears, updates when the vacuum pauses, and disappears when it docks.
 
-## Verhalten
+## Behavior
 
-| Zustand | Anzeige |
+| Vacuum state | Notification |
 | --- | --- |
-| `cleaning` | Reinigt |
-| `paused` | Pausiert |
-| `returning` | Fährt zur Station |
-| `docked`, `idle`, `error` oder andere inaktive Zustände | Anzeige wird entfernt |
-| `unknown` oder `unavailable` | Anzeige bleibt bei einem kurzen Aussetzer stehen und wird nach zwei Minuten durchgängigem Zustand entfernt |
+| `cleaning` | Cleaning |
+| `paused` | Paused |
+| `returning` | Returning to dock |
+| `docked`, `idle`, `error`, or another inactive state | Dismissed |
+| `unknown` or `unavailable` | Stays visible through a brief disconnect and is dismissed if the state persists for two minutes |
 
-Änderungen des Roboterzustands werden direkt verarbeitet. Während eines aktiven Laufs werden optionale Messwerte zusätzlich alle fünf Minuten abgefragt. Ohne gültigen Fortschrittswert zeigt der Blueprint keinen Balken; der Akkustand wird getrennt angezeigt und dient nicht als Fortschritt. Nach einem HA-Neustart oder bei **Aktionen ausführen** gleicht der Blueprint die Anzeige mit dem aktuell bekannten Zustand ab.
+The blueprint responds to vacuum state changes as they happen. While a run is active, it also refreshes optional readings every five minutes. The progress bar appears only when a valid cleaning progress reading is available; battery level is displayed separately. After a Home Assistant restart, or when you select **Run actions**, the blueprint updates or dismisses the notification based on the current state.
 
-Verwende eine Automation je Saugroboter: Die Anzeige-ID basiert auf der Entität, sodass sich zwei Automationen für denselben Roboter auf demselben Handy gegenseitig überschreiben würden. Benachrichtigungstext und Messwerte können auf dem Sperrbildschirm sichtbar sein.
+Use one automation per vacuum. The notification tag is derived from the vacuum's entity ID, so two automations for the same vacuum would overwrite each other's notification on the same phone. Notification text and readings can be visible on the Lock Screen.
 
-## Fehlersuche
+## Troubleshooting
 
-- **Keine Anzeige:** Schicke zuerst eine gewöhnliche Testbenachrichtigung an jede `notify.mobile_app_*`-Aktion. Prüfe dann Betriebssystemversion, Companion-App und Live-Berechtigungen. iOS kann neue Live Activities drosseln; nach vielen schnellen Start-/Stopp-Tests kann der nächste Start ausbleiben, bis sich das Budget erholt.
-- **Nur ein Symbol auf Android:** Bei wenig Platz und je nach Hersteller kann Android im Statusleisten-Chip nur das Symbol zeigen. Prüfe auch die Anzeige im Sperrbildschirm bzw. in der Benachrichtigungsleiste.
-- **Kein Fortschrittsbalken:** Prüfe den Sensor in **Entwicklerwerkzeuge → Zustände**. Werte wie `unknown`, `unavailable`, Zahlen außerhalb von 0 bis 100 und Textwerte wie `50 %` werden nicht als Fortschritt verwendet. Die Einheit `%` darf als separates Sensorattribut gesetzt sein.
+- **Nothing appears:** Send a regular test notification using each `notify.mobile_app_*` action. Then check the OS version, Companion app version, and permissions. iOS may throttle new Live Activities if you rapidly start and stop them during testing.
+- **Android shows only an icon:** Depending on the manufacturer and available space, the status bar chip may show only the icon. Check the Lock Screen or notification shade for the full notification.
+- **No progress bar:** Check the sensor in **Developer tools → States**. The blueprint ignores `unknown`, `unavailable`, numbers outside 0 to 100, and text such as `50%`. The sensor can still have `%` as its separate unit of measurement.
 
-## Automatisierte Tests
+## Automated tests
 
-Die Tests laden den Blueprint in Home Assistant Core, lösen Zustandswechsel aus und prüfen die abgefangenen Notify-Aufrufe. Sie prüfen nicht die tatsächliche Push-Zustellung oder das Aussehen auf einem Smartphone.
+The tests load the blueprint in Home Assistant Core, simulate vacuum state changes, and verify the captured notification calls. They do not test push delivery or how the notification looks on a physical phone.
 
 ```sh
 uv run --no-project --python 3.14 --with 'homeassistant==2026.7.0' python -m unittest discover -s tests -v

@@ -43,7 +43,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
 
         for phone in PHONES:
             hass.services.async_register("notify", phone, capture)
-        self.attrs = {"friendly_name": "Testroboter"}
+        self.attrs = {"friendly_name": "Test Vacuum"}
         hass.states.async_set(VACUUM, initial_state, self.attrs)
         inputs = {
             "vacuum_entity": VACUUM,
@@ -58,7 +58,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
             inputs.update(
                 progress_sensor="sensor.progress",
                 battery_sensor="sensor.battery",
-                tap_path="/dashboard-haus/reinigung",
+                tap_path="/dashboard-home/cleaning",
             )
         self.assertTrue(
             await async_setup_component(
@@ -106,18 +106,22 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         data = first["data"]
         tag = data["tag"]
         self.assertTrue(re.fullmatch("[a-zA-Z0-9_-]{1,64}", tag))
-        self.assertEqual(first["title"], "Testroboter")
-        self.assertEqual(first["message"], "Reinigt")
+        self.assertEqual(first["title"], "Test Vacuum")
+        self.assertEqual(first["message"], "Cleaning")
         self.assertIs(data["live_update"], True)
         self.assertNotIn("progress", data)
         self.assertEqual(data["url"], f"/?more-info-entity-id={VACUUM}")
         self.assertEqual(data["clickAction"], data["url"])
 
-        for state, label in (("paused", "Pausiert"), ("returning", "Fährt zur Station")):
+        for state, label, chip in (
+            ("paused", "Paused", "Paused"),
+            ("returning", "Returning to dock", "Docking"),
+        ):
             await self.set_vacuum(state)
             update = self.payload()
             self.assertEqual(update["data"]["tag"], tag)
             self.assertEqual(update["message"], label)
+            self.assertEqual(update["data"]["critical_text"], chip)
 
         await self.set_vacuum("docked")
         self.assertEqual(
@@ -131,24 +135,25 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         self.hass.states.async_set("sensor.battery", "90")
         await self.set_vacuum("cleaning")
         payload = self.payload()
-        self.assertEqual(payload["message"], "Reinigt · 0 % fertig · Akku 90 %")
+        self.assertEqual(payload["message"], "Cleaning · 0% complete · Battery 90%")
         self.assertEqual(payload["data"]["progress"], 0)
         self.assertEqual(payload["data"]["progress_max"], 100)
-        self.assertEqual(payload["data"]["url"], "/dashboard-haus/reinigung")
+        self.assertEqual(payload["data"]["url"], "/dashboard-home/cleaning")
+        self.assertEqual(payload["data"]["critical_text"], "0%")
 
         self.hass.states.async_set("sensor.progress", "101")
         self.hass.states.async_set("sensor.battery", "unavailable")
         await self.manually_run()
         payload = self.payload()
-        self.assertEqual(payload["message"], "Reinigt · Akku 75 %")
+        self.assertEqual(payload["message"], "Cleaning · Battery 75%")
         self.assertNotIn("progress", payload["data"])
 
     async def test_startup_and_brief_offline(self):
         await self.set_up_blueprint(initial_state="cleaning")
-        self.assertEqual(self.payload()["message"], "Reinigt")
+        self.assertEqual(self.payload()["message"], "Cleaning")
         await self.set_vacuum("unavailable")
         self.assertEqual(self.calls, [])
         await self.set_vacuum("returning")
-        self.assertEqual(self.payload()["message"], "Fährt zur Station")
+        self.assertEqual(self.payload()["message"], "Returning to dock")
         await self.set_vacuum("error")
         self.assertEqual(self.payload()["message"], "clear_notification")
