@@ -22,7 +22,9 @@ PHONES = ("mobile_app_iphone", "mobile_app_android")
 
 
 class BlueprintTests(unittest.IsolatedAsyncioTestCase):
-    async def set_up_blueprint(self, *, with_metrics=False, initial_state="docked"):
+    async def set_up_blueprint(
+        self, *, with_metrics=False, initial_state="docked", show_completion=None
+    ):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         config = Path(directory.name)
@@ -54,6 +56,8 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
                 "homeassistant.stop",
             ],
         }
+        if show_completion is not None:
+            inputs["show_completion"] = show_completion
         if with_metrics:
             inputs.update(
                 progress_sensor="sensor.progress",
@@ -124,9 +128,18 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(update["data"]["critical_text"], chip)
 
         await self.set_vacuum("docked")
-        self.assertEqual(
-            self.payload(), {"message": "clear_notification", "data": {"tag": tag}}
-        )
+        done = self.payload()
+        self.assertEqual(done["message"], "Cleaning complete")
+        self.assertEqual(done["data"]["tag"], tag)
+        self.assertIs(done["data"]["live_update"], True)
+        self.assertEqual(done["data"]["progress"], 100)
+        self.assertEqual(done["data"]["critical_text"], "Done")
+        self.assertNotIn("sticky", done["data"])
+
+        # The next run replaces the completion message under the same tag.
+        await self.set_vacuum("cleaning")
+        self.assertEqual(self.payload()["data"]["tag"], tag)
+        self.assertEqual(self.payload()["message"], "Cleaning")
 
     async def test_metrics_and_unavailable_values(self):
         await self.set_up_blueprint(with_metrics=True)
@@ -156,4 +169,27 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         await self.set_vacuum("returning")
         self.assertEqual(self.payload()["message"], "Returning to dock")
         await self.set_vacuum("error")
+        self.assertEqual(self.payload()["message"], "clear_notification")
+
+    async def test_completion_only_after_a_finished_run(self):
+        await self.set_up_blueprint()
+        # Docking after pausing, or going idle, is not a finished run.
+        await self.set_vacuum("paused")
+        await self.set_vacuum("docked")
+        self.assertEqual(self.payload()["message"], "clear_notification")
+        await self.set_vacuum("cleaning")
+        await self.set_vacuum("idle")
+        self.assertEqual(self.payload()["message"], "clear_notification")
+
+        # A finished run shows the message, and a restart-style run clears it.
+        await self.set_vacuum("returning")
+        await self.set_vacuum("docked")
+        self.assertEqual(self.payload()["message"], "Cleaning complete")
+        await self.manually_run()
+        self.assertEqual(self.payload()["message"], "clear_notification")
+
+    async def test_completion_can_be_disabled(self):
+        await self.set_up_blueprint(show_completion=False)
+        await self.set_vacuum("cleaning")
+        await self.set_vacuum("docked")
         self.assertEqual(self.payload()["message"], "clear_notification")

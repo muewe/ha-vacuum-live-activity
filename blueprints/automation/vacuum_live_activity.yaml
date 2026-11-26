@@ -1,8 +1,9 @@
 blueprint:
   name: "Robot Vacuum: Live Activity for iOS and Android"
   description: >-
-    Version 1.0.0.
-    Shows when your robot vacuum is cleaning, paused, or returning to its dock.
+    Version 1.1.0.
+    Shows when your robot vacuum is cleaning, paused, or returning to its dock,
+    and keeps a completion message on the lock screen once it has finished.
     Optionally displays cleaning progress and battery level, and links to a
     dashboard. This blueprint does not control the vacuum.
   domain: automation
@@ -46,6 +47,15 @@ blueprint:
             entity:
               filter:
                 - domain: sensor
+        show_completion:
+          name: Keep a completion message
+          description: >-
+            When a cleaning run ends with the vacuum docking, replace the live
+            activity with a "Cleaning complete" message instead of dismissing
+            it. The message stays until you dismiss it or the next run starts.
+          default: true
+          selector:
+            boolean:
         tap_path:
           name: Dashboard path to open on tap
           description: >-
@@ -84,11 +94,19 @@ variables:
   progress_sensor: !input progress_sensor
   battery_sensor: !input battery_sensor
   tap_path: !input tap_path
+  show_completion: !input show_completion
   # Keep the tag stable across restarts and within the 64-character limit.
   notification_tag: "{{ 'ha-vacuum-' ~ sha256(vacuum_entity)[:24] }}"
   trigger_id: "{{ trigger.id | default('manual') if trigger is defined else 'manual' }}"
   vacuum_state: "{{ states(vacuum_entity) }}"
   active: "{{ vacuum_state in ['cleaning', 'paused', 'returning'] }}"
+  # A run is complete when the vacuum docks right after cleaning or returning.
+  # Restarts and manual runs never count, so they cannot show a false message.
+  completed: >-
+    {{ show_completion and vacuum_state == 'docked'
+       and trigger_id == 'state_change'
+       and trigger.from_state is not none
+       and trigger.from_state.state in ['cleaning', 'returning'] }}
   battery_attribute: "{{ state_attr(vacuum_entity, 'battery_level') }}"
   recipients: >-
     {{ notify_actions | map('trim')
@@ -135,29 +153,54 @@ actions:
   - repeat:
       for_each: "{{ recipients }}"
       sequence:
-        - if:
-            - condition: template
-              value_template: "{{ active }}"
-          then:
-            - action: "{{ repeat.item }}"
-              continue_on_error: true
-              data:
-                title: "{{ notification_title }}"
-                message: >-
-                  {{ status_text ~ (' · ' ~ progress ~ '% complete' if progress is not none else '')
-                     ~ (' · Battery ' ~ battery ~ '%' if battery is not none else '') }}
-                data: >-
-                  {% set chip = ('Paused' if vacuum_state == 'paused' else
-                                 ('Docking' if vacuum_state == 'returning' else
-                                 (progress ~ '%' if progress is not none else 'Cleaning'))) %}
-                  {% set base = {'tag': notification_tag, 'live_update': true,
-                                 'sticky': true, 'alert_once': true,
-                                 'notification_icon': 'mdi:robot-vacuum',
-                                 'critical_text': chip, 'url': destination,
-                                 'clickAction': destination} %}
-                  {{ dict(base, progress=progress, progress_max=100)
-                     if progress is not none else base }}
-          else:
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ active }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  continue_on_error: true
+                  data:
+                    title: "{{ notification_title }}"
+                    message: >-
+                      {{ status_text ~ (' · ' ~ progress ~ '% complete' if progress is not none else '')
+                         ~ (' · Battery ' ~ battery ~ '%' if battery is not none else '') }}
+                    data: >-
+                      {% set chip = ('Paused' if vacuum_state == 'paused' else
+                                     ('Docking' if vacuum_state == 'returning' else
+                                     (progress ~ '%' if progress is not none else 'Cleaning'))) %}
+                      {% set base = {'tag': notification_tag, 'live_update': true,
+                                     'sticky': true, 'alert_once': true,
+                                     'notification_icon': 'mdi:robot-vacuum',
+                                     'critical_text': chip, 'url': destination,
+                                     'clickAction': destination} %}
+                      {{ dict(base, progress=progress, progress_max=100)
+                         if progress is not none else base }}
+            - conditions:
+                - condition: template
+                  value_template: "{{ completed }}"
+              sequence:
+                # Reusing the tag turns the running activity into the final message.
+                # It is not sticky, so tapping it dismisses it on Android.
+                - action: "{{ repeat.item }}"
+                  continue_on_error: true
+                  data:
+                    title: "{{ notification_title }}"
+                    message: >-
+                      Cleaning complete{{ ' · Battery ' ~ battery ~ '%' if battery is not none else '' }}
+                    data:
+                      tag: "{{ notification_tag }}"
+                      live_update: true
+                      notification_icon: mdi:robot-vacuum
+                      notification_icon_color: "#4CAF50"
+                      color: "#4CAF50"
+                      progress_bar_color: "#4CAF50"
+                      progress: 100
+                      progress_max: 100
+                      critical_text: Done
+                      url: "{{ destination }}"
+                      clickAction: "{{ destination }}"
+          default:
             - action: "{{ repeat.item }}"
               continue_on_error: true
               data:
