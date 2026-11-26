@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Turn the live activity red with an "Error" status when the vacuum enters the `error` state. The vacuum's `error` attribute is appended to the message when available.
+- Set explicit blue, red, and green colors on every update so a previous state's color cannot linger after the vacuum recovers.
+
 ## 1.1.0
 
 - Keep a "Cleaning complete" live activity after the vacuum docks at the end of a run, instead of dismissing it.
