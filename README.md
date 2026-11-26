@@ -43,8 +43,9 @@ See the [Home Assistant blueprint contributor guide](https://contributors.home-a
 | `cleaning` | Cleaning |
 | `paused` | Paused |
 | `returning` | Returning to dock |
+| `error` | Red Error, with the vacuum's `error` attribute when it reports one; stays until the state changes |
 | `docked` right after `cleaning` or `returning` | Cleaning complete (stays until dismissed or the next run starts) |
-| `docked`, `idle`, `error`, or another inactive state otherwise | Dismissed |
+| `docked`, `idle`, or another inactive state otherwise | Dismissed |
 | `unknown` or `unavailable` | Stays visible through a brief disconnect and is dismissed if the state persists for two minutes |
 
 The blueprint responds to vacuum state changes as they happen. While a run is active, it also refreshes optional readings every five minutes. The progress bar appears only when a valid cleaning progress reading is available; battery level is displayed separately. The completion message replaces the running activity and is not sticky, so tapping it dismisses it on Android. Turn it off with **Keep a completion message** under the optional display settings. A Home Assistant restart, a manual **Run actions**, or the vacuum going offline for two minutes dismisses it, because the blueprint can no longer tell that a run just finished. A paused run that is docked manually is not reported as complete. After a restart or manual run, the blueprint updates or dismisses the notification based on the current state.

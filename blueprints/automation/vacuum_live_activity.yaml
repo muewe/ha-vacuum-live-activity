@@ -1,9 +1,10 @@
 blueprint:
   name: "Robot Vacuum: Live Activity for iOS and Android"
   description: >-
-    Version 1.1.0.
+    Version 1.2.0.
     Shows when your robot vacuum is cleaning, paused, or returning to its dock,
-    and keeps a completion message on the lock screen once it has finished.
+    turns red when it reports an error, and keeps a completion message on the
+    lock screen once it has finished.
     Optionally displays cleaning progress and battery level, and links to a
     dashboard. This blueprint does not control the vacuum.
   domain: automation
@@ -100,6 +101,10 @@ variables:
   trigger_id: "{{ trigger.id | default('manual') if trigger is defined else 'manual' }}"
   vacuum_state: "{{ states(vacuum_entity) }}"
   active: "{{ vacuum_state in ['cleaning', 'paused', 'returning'] }}"
+  errored: "{{ vacuum_state == 'error' }}"
+  error_detail: >-
+    {% set detail = state_attr(vacuum_entity, 'error') %}
+    {{ detail | string | trim if detail is string and detail | trim not in ['', 'None', 'none', 'unknown'] else '' }}
   # A run is complete when the vacuum docks right after cleaning or returning.
   # Restarts and manual runs never count, so they cannot show a false message.
   completed: >-
@@ -156,6 +161,31 @@ actions:
         - choose:
             - conditions:
                 - condition: template
+                  value_template: "{{ errored }}"
+              sequence:
+                # Same tag as the running activity, so the error replaces it in place.
+                # It stays sticky and alerts, because an error needs attention.
+                - action: "{{ repeat.item }}"
+                  continue_on_error: true
+                  data:
+                    title: "{{ notification_title }}"
+                    message: >-
+                      {{ 'Error' ~ (': ' ~ error_detail if error_detail else '')
+                         ~ (' · ' ~ progress ~ '% complete' if progress is not none else '')
+                         ~ (' · Battery ' ~ battery ~ '%' if battery is not none else '') }}
+                    data: >-
+                      {% set base = {'tag': notification_tag, 'live_update': true,
+                                     'sticky': true,
+                                     'notification_icon': 'mdi:robot-vacuum-alert',
+                                     'notification_icon_color': '#F44336',
+                                     'color': '#F44336',
+                                     'progress_bar_color': '#F44336',
+                                     'critical_text': 'Error', 'url': destination,
+                                     'clickAction': destination} %}
+                      {{ dict(base, progress=progress, progress_max=100)
+                         if progress is not none else base }}
+            - conditions:
+                - condition: template
                   value_template: "{{ active }}"
               sequence:
                 - action: "{{ repeat.item }}"
@@ -172,6 +202,9 @@ actions:
                       {% set base = {'tag': notification_tag, 'live_update': true,
                                      'sticky': true, 'alert_once': true,
                                      'notification_icon': 'mdi:robot-vacuum',
+                                     'notification_icon_color': '#2196F3',
+                                     'color': '#2196F3',
+                                     'progress_bar_color': '#2196F3',
                                      'critical_text': chip, 'url': destination,
                                      'clickAction': destination} %}
                       {{ dict(base, progress=progress, progress_max=100)
