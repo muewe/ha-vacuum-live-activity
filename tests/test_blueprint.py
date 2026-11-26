@@ -169,7 +169,7 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         await self.set_vacuum("returning")
         self.assertEqual(self.payload()["message"], "Returning to dock")
         await self.set_vacuum("error")
-        self.assertEqual(self.payload()["message"], "clear_notification")
+        self.assertEqual(self.payload()["message"], "Error")
 
     async def test_completion_only_after_a_finished_run(self):
         await self.set_up_blueprint()
@@ -193,3 +193,47 @@ class BlueprintTests(unittest.IsolatedAsyncioTestCase):
         await self.set_vacuum("cleaning")
         await self.set_vacuum("docked")
         self.assertEqual(self.payload()["message"], "clear_notification")
+
+    async def test_error_turns_red_and_recovers(self):
+        await self.set_up_blueprint(with_metrics=True)
+        self.hass.states.async_set("sensor.progress", "40")
+        self.hass.states.async_set("sensor.battery", "80")
+        await self.set_vacuum("cleaning")
+        tag = self.payload()["data"]["tag"]
+        self.assertEqual(self.payload()["data"]["color"], "#2196F3")
+
+        self.attrs["error"] = "Main brush stuck"
+        await self.set_vacuum("error")
+        error = self.payload()
+        self.assertEqual(
+            error["message"], "Error: Main brush stuck · 40% complete · Battery 80%"
+        )
+        data = error["data"]
+        self.assertEqual(data["tag"], tag)
+        self.assertIs(data["live_update"], True)
+        self.assertIs(data["sticky"], True)
+        self.assertEqual(data["notification_icon"], "mdi:robot-vacuum-alert")
+        for key in ("color", "notification_icon_color", "progress_bar_color"):
+            self.assertEqual(data[key], "#F44336")
+        self.assertEqual(data["critical_text"], "Error")
+        self.assertEqual(data["progress"], 40)
+
+        # Recovering replaces the red state with the normal blue one.
+        await self.set_vacuum("returning")
+        self.assertEqual(self.payload()["data"]["color"], "#2196F3")
+        await self.set_vacuum("docked")
+        self.assertEqual(self.payload()["message"].split(" ·")[0], "Cleaning complete")
+
+    async def test_error_without_detail_and_from_idle(self):
+        await self.set_up_blueprint()
+        for detail in (None, "None", "  "):
+            self.attrs["error"] = detail
+            await self.set_vacuum("error")
+            self.assertEqual(self.payload()["message"], "Error")
+            await self.set_vacuum("idle")
+            self.assertEqual(self.payload()["message"], "clear_notification")
+
+    async def test_error_is_shown_after_startup(self):
+        await self.set_up_blueprint(initial_state="error")
+        self.assertEqual(self.payload()["message"], "Error")
+        self.assertEqual(self.payload()["data"]["color"], "#F44336")
