@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- Keep a "Cleaning complete" live activity after the vacuum docks at the end of a run, instead of dismissing it.
+- Add the optional `show_completion` input (default: enabled) to turn the completion message off. Existing automations pick it up without changes.
+
 ## 1.0.0 - 2026-11-21
 
 - Initial public release for iOS Live Activities and Android Live Updates.
